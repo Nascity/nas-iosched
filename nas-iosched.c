@@ -11,6 +11,8 @@
 #define TRACK(__sec)		((__sec) / SECTORS_PER_TRACK)
 #define RQ_TRACK(__req)		TRACK(blk_rq_pos(__req))
 
+#define NAS_DMESG_HEADER	"[nas-iosched]"
+
 struct nas_data {
 	struct rb_root tree;
 	sector_t headpos;
@@ -40,7 +42,7 @@ nas_init_queue(struct request_queue* q, struct elevator_type* e)
 
 	spin_lock_init(&nd->lock);
 
-	printk("nas-iosched initialized.\n");
+	printk(NAS_DMESG_HEADER"nas-iosched initialized.\n");
 	return 0;
 }
 
@@ -51,14 +53,15 @@ nas_exit_queue(struct elevator_queue* e)
 
 	kfree(nd);
 
-	printk("nas-iosched exited.\n");
+	printk(NAS_DMESG_HEADER"nas-iosched exited.\n");
 }
 
 static void
 nas_insert_request(struct nas_data* nd, struct request* rq, bool at_head)
 {
 	elv_rb_add(&nd->tree, rq);
-	printk("Request for sector %llu inserted.\n", blk_rq_pos(rq));
+	printk(NAS_DMESG_HEADER "Request for sector %llu with size %u inserted.\n",
+			blk_rq_pos(rq), blk_rq_bytes(rq));
 }
 
 static void
@@ -96,6 +99,8 @@ __nas_dispatch_requests(struct nas_data* nd)
 		else
 			p = p->rb_left;
 	}
+	if (rq)
+		elv_rb_del(nd->tree, rq);
 
 	return rq;
 }
@@ -108,6 +113,7 @@ nas_dispatch_requests(struct blk_mq_hw_ctx* hctx)
 	
 	spin_lock(&nd->lock);
 	rq = __nas_dispatch_requests(nd);
+	printk(NAS_DMESG_HEADER "Sector %llu dispatched.\n", blk_rq_pos(rq));
 	spin_unlock(&nd->lock);
 
 	return rq;
