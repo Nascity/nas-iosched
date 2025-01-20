@@ -5,6 +5,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/rbtree.h>
+#include <linux/blk-mq.h>
 
 #define SECTORS_PER_TRACK	63
 #define TRACK(__sec)		((__sec) / SECTORS_PER_TRACK)
@@ -14,7 +15,7 @@ struct nas_data {
 	struct rb_root tree;
 	sector_t headpos;
 	spinlock_t lock;
-}
+};
 
 static int
 nas_init_queue(struct request_queue* q, struct elevator_type* e)
@@ -56,12 +57,7 @@ nas_exit_queue(struct elevator_queue* e)
 static void
 nas_insert_request(struct nas_data* nd, struct request* rq, bool at_head)
 {
-	struct request* ret;
-
-	ret = elv_rb_add(&nd->tree, rq);
-	if (ret)
-		printk(KERN_WARNING "Request at sector %llu already exists.\n",
-				blk_rq_pos(ret));
+	elv_rb_add(&nd->tree, rq);
 	printk("Request for sector %llu inserted.\n", blk_rq_pos(rq));
 }
 
@@ -86,8 +82,7 @@ nas_insert_requests(struct blk_mq_hw_ctx* hctx,
 struct request*
 __nas_dispatch_requests(struct nas_data* nd)
 {
-	struct rb_node* p = nd->tree->rb_node;
-	struct rb_node* parent = NULL;
+	struct rb_node* p = nd->tree.rb_node;
 	struct request* rq = NULL;
 
 	while (p)
@@ -123,7 +118,7 @@ nas_has_work(struct blk_mq_hw_ctx* hctx)
 {
 	struct nas_data* nd = hctx->queue->elevator->elevator_data;
 	
-	return nd->tree->rb_node != NULL;
+	return nd->tree.rb_node != NULL;
 }
 
 static struct elevator_type nas = {
@@ -134,7 +129,7 @@ static struct elevator_type nas = {
 
 		// request insertion and dispatch
 		.insert_requests	= nas_insert_requests,
-		.dispatch_requests	= nas_dispatch_requests,
+		.dispatch_request	= nas_dispatch_requests,
 
 		.has_work		= nas_has_work,
 	},
