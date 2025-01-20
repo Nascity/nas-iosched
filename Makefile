@@ -9,4 +9,5 @@ clean:
 
 test:
 	# https://greencloud33.tistory.com/54
-	fio --filename=/dev/sda --direct=1 --sync=1 --rw=randread --stonewall  --bs=4k --numjobs=16 --iodepth=16 --runtime=60 --time_based --group_reporting --name=bigt --size=10G
+	sudo blktrace -d /dev/sda -o trace -w 60 &
+	sudo fio --filename=/dev/sda --direct=1 --sync=1 --rw=randread --stonewall  --bs=4k --numjobs=16 --iodepth=16 --runtime=60 --time_based --group_reporting --name=bigt --size=10G
