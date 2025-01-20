@@ -100,7 +100,7 @@ __nas_dispatch_requests(struct nas_data* nd)
 			p = p->rb_left;
 	}
 	if (rq)
-		elv_rb_del(nd->tree, rq);
+		elv_rb_del(&nd->tree, rq);
 
 	return rq;
 }
