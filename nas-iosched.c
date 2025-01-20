@@ -6,6 +6,10 @@
 #include <linux/init.h>
 #include <linux/rbtree.h>
 
+#define SECTORS_PER_TRACK	63
+#define TRACK(__sec)		((__sec) / SECTORS_PER_TRACK)
+#define RQ_TRACK(__req)		TRACK(blk_rq_pos(__req))
+
 struct nas_data {
 	struct rb_root tree;
 	sector_t headpos;
@@ -30,10 +34,12 @@ nas_init_queue(struct request_queue* q, struct elevator_type* e)
 	}
 	eq->elevator_data = nd;
 	nd->tree = RB_ROOT;
+	nd->headpos = 0;
+	q->elevator = eq;
 
 	spin_lock_init(&nd->lock);
 
-	q->elevator = eq;
+	printk("nas-iosched initialized.\n");
 	return 0;
 }
 
@@ -43,6 +49,8 @@ nas_exit_queue(struct elevator_queue* e)
 	struct nas_data* nd = e->elevator_data;
 
 	kfree(nd);
+
+	printk("nas-iosched exited.\n");
 }
 
 static void
@@ -54,6 +62,7 @@ nas_insert_request(struct nas_data* nd, struct request* rq, bool at_head)
 	if (ret)
 		printk(KERN_WARNING "Request at sector %llu already exists.\n",
 				blk_rq_pos(ret));
+	printk("Request for sector %llu inserted.\n", blk_rq_pos(rq));
 }
 
 static void
@@ -77,7 +86,23 @@ nas_insert_requests(struct blk_mq_hw_ctx* hctx,
 struct request*
 __nas_dispatch_requests(struct nas_data* nd)
 {
-	
+	struct rb_node* p = nd->tree->rb_node;
+	struct rb_node* parent = NULL;
+	struct request* rq = NULL;
+
+	while (p)
+	{
+		rq = rb_entry(p, struct request, rb_node);
+
+		if (RQ_TRACK(rq) == TRACK(nd->headpos))
+			break;
+		else if (RQ_TRACK(rq) > TRACK(nd->headpos))
+			p = p->rb_right;
+		else
+			p = p->rb_left;
+	}
+
+	return rq;
 }
 
 struct request*
@@ -98,6 +123,7 @@ nas_has_work(struct blk_mq_hw_ctx* hctx)
 {
 	struct nas_data* nd = hctx->queue->elevator->elevator_data;
 	
+	return nd->tree->rb_node != NULL;
 }
 
 static struct elevator_type nas = {
