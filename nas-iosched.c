@@ -7,15 +7,9 @@
 #include <linux/rbtree.h>
 
 struct nas_data {
-	struct rb_root sort_list[2];
-	struct list_head dispatch;
+	struct rb_root tree;
+	sector_t headpos;
 	spinlock_t lock;
-}
-
-static inline struct rb_root*
-nas_rb_root(struct nas_data* nd, struct request* rq)
-{
-	return &nd->sort_list[rq_data_dir(rq)];
 }
 
 static int
@@ -29,17 +23,15 @@ nas_init_queue(struct request_queue* q, struct elevator_type* e)
 		return -ENOMEM;
 
 	nd = kzalloc_node(sizeof(struct nas_data), GFP_KERNEL, q->node);
-	if (!dd)
+	if (!nd)
 	{
 		kobject_put(&eq->kobj);
 		return -ENOMEM;
 	}
-	eq->elevator_data = dd;
+	eq->elevator_data = nd;
+	nd->tree = RB_ROOT;
 
-	dd->sort_list[READ] = RB_ROOT;
-	dd->sort_list[WRITE] = RB_ROOT;
-
-	spin_lock_init(&dd->lock);
+	spin_lock_init(&nd->lock);
 
 	q->elevator = eq;
 	return 0;
@@ -53,17 +45,72 @@ nas_exit_queue(struct elevator_queue* e)
 	kfree(nd);
 }
 
+static void
+nas_insert_request(struct nas_data* nd, struct request* rq, bool at_head)
+{
+	struct request* ret;
+
+	ret = elv_rb_add(&nd->tree, rq);
+	if (ret)
+		printk(KERN_WARNING "Request at sector %llu already exists.\n",
+				blk_rq_pos(ret));
+}
+
+static void
+nas_insert_requests(struct blk_mq_hw_ctx* hctx,
+		struct list_head* list, bool at_head)
+{
+	struct request_queue* q = hctx->queue;
+	struct nas_data* nd = q->elevator->elevator_data;
+	struct request* rq;
+
+	spin_lock(&nd->lock);
+	while (!list_empty(list))
+	{
+		rq = list_first_entry(list, struct request, queuelist);
+		list_del_init(&rq->queuelist);
+		nas_insert_request(nd, rq, at_head);
+	}
+	spin_unlock(&nd->lock);
+}
+
+struct request*
+__nas_dispatch_requests(struct nas_data* nd)
+{
+	
+}
+
+struct request*
+nas_dispatch_requests(struct blk_mq_hw_ctx* hctx)
+{
+	struct nas_data* nd = hctx->queue->elevator->elevator_data;
+	struct request* rq;
+	
+	spin_lock(&nd->lock);
+	rq = __nas_dispatch_requests(nd);
+	spin_unlock(&nd->lock);
+
+	return rq;
+}
+
+bool
+nas_has_work(struct blk_mq_hw_ctx* hctx)
+{
+	struct nas_data* nd = hctx->queue->elevator->elevator_data;
+	
+}
+
 static struct elevator_type nas = {
 	.ops = {
-		.insert_requests	= nas_insert_requests,
-		.dispatch_requests	= nas_dispatch_requests,
-		.prepare_requests	= nas_prepare_requests,
-		.next_request		= elv_rb_latter_request,
-		.former_request		= elv_rb_former_request,
-		.bio_merge		= nas_bio_merge,
-		.request_merge		= nas_request_merge,
+		// init and cleanup
 		.init_sched		= nas_init_queue,
 		.exit_sched		= nas_exit_queue,
+
+		// request insertion and dispatch
+		.insert_requests	= nas_insert_requests,
+		.dispatch_requests	= nas_dispatch_requests,
+
+		.has_work		= nas_has_work,
 	},
 	.elevator_name = "nas-iosched",
 	.elevator_alias = "nas",
