@@ -5,8 +5,8 @@ all:
 	make -C /lib/modules/$(KVERSION)/build M=$(PWD) modules
 
 clean:
-	rm trace.*
 	make -C /lib/modules/$(KVERSION)/build M=$(PWD) clean
+	rm trace.*
 
 apply: all
 	sudo insmod nas-iosched.ko
