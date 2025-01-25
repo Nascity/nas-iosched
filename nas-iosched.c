@@ -11,7 +11,31 @@
 #define TRACK(__sec)		((__sec) / SECTORS_PER_TRACK)
 #define RQ_TRACK(__req)		TRACK(blk_rq_pos(__req))
 
-#define NAS_DMESG_HEADER	"[nas-iosched]"
+#define ABS(N)			((N) > 0 ? (N) : -(N))
+#define GET_SECTOR(__node)	(RQ_TRACK(rb_entry(__node, struct request, rb_node)))
+#define DOUBLE_MIN(_a, _b)	((_a) < (_b) ? (_a) : (_b))
+#define TRIPLE_MIN(_p, _l, _r)	ABS(GET_SECTOR(_p) - _h),			\
+				(_p->rb_left					\
+					? ABS(GET_SECTOR(_p->rb_left) - _h)	\
+					: ((u64)-1)),				\
+				(_p->rb_right					\
+				 	? ABS(GET_SECTOR(_p->rb_right) - _h)	\
+					: ((u64)-1)))
+
+
+((_l) < (_r) ? 			\
+				((_p) <= (_l) ? (_p) : (_l))	\
+				: ((_p) <= (_r) ? (_p) : (_r)))
+#define RB_MIN(_p, _h)		TRIPLE_MIN(					\
+				ABS(GET_SECTOR(_p) - _h),			\
+				(_p->rb_left					\
+					? ABS(GET_SECTOR(_p->rb_left) - _h)	\
+					: ((u64)-1)),				\
+				(_p->rb_right					\
+				 	? ABS(GET_SECTOR(_p->rb_right) - _h)	\
+					: ((u64)-1)))
+
+#define NAS_DMESG_HEADER	"[nas-iosched] "
 
 struct nas_data {
 	struct rb_root tree;
@@ -60,8 +84,6 @@ static void
 nas_insert_request(struct nas_data* nd, struct request* rq, bool at_head)
 {
 	elv_rb_add(&nd->tree, rq);
-	printk(NAS_DMESG_HEADER "Request for sector %llu with size %u inserted.\n",
-			blk_rq_pos(rq), blk_rq_bytes(rq));
 }
 
 static void
@@ -86,18 +108,21 @@ struct request*
 __nas_dispatch_requests(struct nas_data* nd)
 {
 	struct rb_node* p = nd->tree.rb_node;
+	struct rb_node* min = NULL;
 	struct request* rq = NULL;
+	int leftdiff, rightdiff;
 
 	while (p)
 	{
 		rq = rb_entry(p, struct request, rb_node);
-
-		if (RQ_TRACK(rq) == TRACK(nd->headpos))
+		min = RB_MIN(p, nd->headpos);
+		
+		if (min == p)
 			break;
-		else if (RQ_TRACK(rq) > TRACK(nd->headpos))
-			p = p->rb_right;
-		else
+		else if (min == p->rb_left)
 			p = p->rb_left;
+		else
+			p = p->rb_right;
 	}
 	if (rq)
 		elv_rb_del(&nd->tree, rq);
@@ -113,7 +138,6 @@ nas_dispatch_requests(struct blk_mq_hw_ctx* hctx)
 	
 	spin_lock(&nd->lock);
 	rq = __nas_dispatch_requests(nd);
-	printk(NAS_DMESG_HEADER "Sector %llu dispatched.\n", blk_rq_pos(rq));
 	spin_unlock(&nd->lock);
 
 	return rq;
