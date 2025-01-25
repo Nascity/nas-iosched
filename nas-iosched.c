@@ -7,35 +7,24 @@
 #include <linux/rbtree.h>
 #include <linux/blk-mq.h>
 
+#define NAS_DMESG_HEADER	"[nas-iosched] "
+
 #define SECTORS_PER_TRACK	63
 #define TRACK(__sec)		((__sec) / SECTORS_PER_TRACK)
 #define RQ_TRACK(__req)		TRACK(blk_rq_pos(__req))
 
-#define ABS(N)			((N) > 0 ? (N) : -(N))
-#define GET_SECTOR(__node)	(RQ_TRACK(rb_entry(__node, struct request, rb_node)))
-#define DOUBLE_MIN(_a, _b)	((_a) < (_b) ? (_a) : (_b))
-#define TRIPLE_MIN(_p, _l, _r)	ABS(GET_SECTOR(_p) - _h),			\
-				(_p->rb_left					\
-					? ABS(GET_SECTOR(_p->rb_left) - _h)	\
-					: ((u64)-1)),				\
-				(_p->rb_right					\
-				 	? ABS(GET_SECTOR(_p->rb_right) - _h)	\
-					: ((u64)-1)))
+#define ABS(N)				((N) > 0 ? (N) : -(N))
+#define GET_TRACK(__node)		(RQ_TRACK(rb_entry(__node, struct request, rb_node)))
+#define TRACK_DIST(__node, _h)		(ABS(GET_TRACK(__node) - (_h)))
+#define DIST2_MIN(_a, _b, _h)		(TRACK_DIST(_a) < TRACK_DIST(_b) ? TRACK_DIST(_a) : TRACK_DIST(_b))
 
-
-((_l) < (_r) ? 			\
-				((_p) <= (_l) ? (_p) : (_l))	\
-				: ((_p) <= (_r) ? (_p) : (_r)))
-#define RB_MIN(_p, _h)		TRIPLE_MIN(					\
-				ABS(GET_SECTOR(_p) - _h),			\
-				(_p->rb_left					\
-					? ABS(GET_SECTOR(_p->rb_left) - _h)	\
-					: ((u64)-1)),				\
-				(_p->rb_right					\
-				 	? ABS(GET_SECTOR(_p->rb_right) - _h)	\
-					: ((u64)-1)))
-
-#define NAS_DMESG_HEADER	"[nas-iosched] "
+#define RB3_MIN(_p, _l, _r, _h)		(DIST2_MIN(_l, _r, _h) < TRACK_DIST(_p, _h) ?			\
+					(TRACK_DIST(_l, _h) < TRACK_DIST(_r, _h) ? (_l) : (_r)) :	\
+					(_p)
+#define RB_MIN(_p, _h)			(_p,				\
+					_p->rb_left ? _p->rb_left : _p,		\
+					_p->rb_right ? _p->rb_right : _p,	\
+					_h)
 
 struct nas_data {
 	struct rb_root tree;
